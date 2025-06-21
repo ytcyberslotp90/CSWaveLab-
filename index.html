@@ -69,7 +69,7 @@
 
     <button onclick="playOscillator()">▶️ Play</button>
     <button onclick="stopOscillator()">⏹️ Stop</button>
-  <button onclick="exportWav()">📥 Export .WAV (60 sec)</button>
+    <button onclick="exportWav()">📥 Export .WAV (60 sec)</button>
   </div>
 
   <canvas id="scope" width="600" height="150"></canvas>
@@ -85,6 +85,17 @@
 
       if (freqParam || waveParam) playOscillator();
     });
+
+    document.getElementById("freq").addEventListener("input", updateURLParams);
+    document.getElementById("wave").addEventListener("change", updateURLParams);
+
+    function updateURLParams() {
+      const freq = document.getElementById("freq").value;
+      const wave = document.getElementById("wave").value;
+      const newURL = `${window.location.pathname}?freq=${freq}&wave=${wave}`;
+      history.replaceState(null, "", newURL);
+    }
+
     let ctx = null;
     let osc = null;
     let analyser = null;
@@ -177,11 +188,11 @@
 
       draw();
     }
-  
+
     function exportWav() {
       const freq = parseFloat(document.getElementById("freq").value);
       const wave = document.getElementById("wave").value;
-      const duration = 60; // seconds
+      const duration = 60;
       const sampleRate = 44100;
       const frameCount = sampleRate * duration;
 
@@ -217,28 +228,22 @@
       const bufferArray = new ArrayBuffer(length);
       const view = new DataView(bufferArray);
       const channels = [];
-      let i, sample,
-        offset = 0,
-        pos = 0;
+      let i, sample, offset = 0, pos = 0;
 
-      // write WAV header
-      setUint32(0x46464952); // "RIFF"
-      setUint32(length - 8); // file length - 8
-      setUint32(0x45564157); // "WAVE"
-
-      setUint32(0x20746d66); // "fmt " chunk
-      setUint32(16); // length = 16
-      setUint16(1); // PCM (uncompressed)
+      setUint32(0x46464952);
+      setUint32(length - 8);
+      setUint32(0x45564157);
+      setUint32(0x20746d66);
+      setUint32(16);
+      setUint16(1);
       setUint16(numOfChan);
       setUint32(buffer.sampleRate);
-      setUint32(buffer.sampleRate * 2 * numOfChan); // avg. bytes/sec
-      setUint16(numOfChan * 2); // block-align
-      setUint16(16); // 16-bit (hardcoded)
-
-      setUint32(0x61746164); // "data" - chunk
+      setUint32(buffer.sampleRate * 2 * numOfChan);
+      setUint16(numOfChan * 2);
+      setUint16(16);
+      setUint32(0x61746164);
       setUint32(length - pos - 4);
 
-      // write interleaved data
       for (i = 0; i < buffer.numberOfChannels; i++)
         channels.push(buffer.getChannelData(i));
 
