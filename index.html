@@ -75,6 +75,13 @@
   <canvas id="scope" width="600" height="150"></canvas>
 
   <script>
+    function updateURLParams() {
+      const freq = document.getElementById("freq").value;
+      const wave = document.getElementById("wave").value;
+      const newURL = `${window.location.pathname}?freq=${freq}&wave=${wave}`;
+      history.replaceState(null, "", newURL);
+    }
+
     window.addEventListener("DOMContentLoaded", () => {
       const urlParams = new URLSearchParams(window.location.search);
       const freqParam = urlParams.get("freq");
@@ -83,196 +90,21 @@
       if (freqParam) document.getElementById("freq").value = freqParam;
       if (waveParam) document.getElementById("wave").value = waveParam;
 
+      document.getElementById("freq").addEventListener("input", () => {
+        updateURLParams();
+      });
+      document.getElementById("wave").addEventListener("change", () => {
+        updateURLParams();
+      });
+
       if (freqParam || waveParam) playOscillator();
     });
 
-    document.getElementById("freq").addEventListener("input", updateURLParams);
-    document.getElementById("wave").addEventListener("change", updateURLParams);
-
-    function updateURLParams() {
-      const freq = document.getElementById("freq").value;
-      const wave = document.getElementById("wave").value;
-      const newURL = `${window.location.pathname}?freq=${freq}&wave=${wave}`;
-      history.replaceState(null, "", newURL);
-    }
-
-    let ctx = null;
-    let osc = null;
-    let analyser = null;
-    let dataArray = null;
-    let animationId = null;
-    let oscillatorStarted = false;
-
-    function playOscillator() {
-      stopOscillator();
-
-      const freq = parseFloat(document.getElementById("freq").value);
-      const wave = document.getElementById("wave").value;
-
-      ctx = new (window.AudioContext || window.webkitAudioContext)();
-      osc = ctx.createOscillator();
-      osc.type = wave;
-      osc.frequency.setValueAtTime(freq, ctx.currentTime);
-
-      analyser = ctx.createAnalyser();
-      analyser.fftSize = 2048;
-      const bufferLength = analyser.fftSize;
-      dataArray = new Uint8Array(bufferLength);
-
-      osc.connect(analyser);
-      analyser.connect(ctx.destination);
-      osc.start();
-      oscillatorStarted = true;
-
-      drawScope();
-    }
-
-    function stopOscillator() {
-      if (osc && oscillatorStarted) {
-        try {
-          osc.stop();
-        } catch (e) {
-          console.error("Oscillator stop error:", e);
-        }
-        osc.disconnect();
-        osc = null;
-        oscillatorStarted = false;
-      }
-      if (ctx) {
-        ctx.close();
-        ctx = null;
-      }
-      if (animationId) cancelAnimationFrame(animationId);
-
-      const canvas = document.getElementById("scope");
-      const canvasCtx = canvas.getContext("2d");
-      canvasCtx.clearRect(0, 0, canvas.width, canvas.height);
-    }
-
-    function drawScope() {
-      const canvas = document.getElementById("scope");
-      const canvasCtx = canvas.getContext("2d");
-
-      function draw() {
-        animationId = requestAnimationFrame(draw);
-
-        analyser.getByteTimeDomainData(dataArray);
-
-        canvasCtx.fillStyle = "black";
-        canvasCtx.fillRect(0, 0, canvas.width, canvas.height);
-
-        canvasCtx.lineWidth = 2;
-        canvasCtx.strokeStyle = "#00ffcc";
-
-        canvasCtx.beginPath();
-
-        const sliceWidth = canvas.width / dataArray.length;
-        let x = 0;
-
-        for (let i = 0; i < dataArray.length; i++) {
-          const v = dataArray[i] / 128.0;
-          const y = v * canvas.height / 2;
-
-          if (i === 0) {
-            canvasCtx.moveTo(x, y);
-          } else {
-            canvasCtx.lineTo(x, y);
-          }
-
-          x += sliceWidth;
-        }
-
-        canvasCtx.lineTo(canvas.width, canvas.height / 2);
-        canvasCtx.stroke();
-      }
-
-      draw();
-    }
-
-    function exportWav() {
-      const freq = parseFloat(document.getElementById("freq").value);
-      const wave = document.getElementById("wave").value;
-      const duration = 60;
-      const sampleRate = 44100;
-      const frameCount = sampleRate * duration;
-
-      const offlineCtx = new OfflineAudioContext(1, frameCount, sampleRate);
-      const osc = offlineCtx.createOscillator();
-      osc.type = wave;
-      osc.frequency.setValueAtTime(freq, 0);
-      osc.connect(offlineCtx.destination);
-      osc.start();
-      osc.stop(duration);
-
-      offlineCtx.startRendering().then(renderedBuffer => {
-        const wavData = audioBufferToWav(renderedBuffer);
-        const blob = new Blob([new DataView(wavData)], { type: 'audio/wav' });
-        const url = URL.createObjectURL(blob);
-
-        const a = document.createElement("a");
-        a.style.display = "none";
-        a.href = url;
-        a.download = `cswavelab_${wave}_${freq}Hz.wav`;
-        document.body.appendChild(a);
-        a.click();
-        setTimeout(() => {
-          document.body.removeChild(a);
-          URL.revokeObjectURL(url);
-        }, 100);
-      });
-    }
-
-    function audioBufferToWav(buffer) {
-      const numOfChan = buffer.numberOfChannels;
-      const length = buffer.length * numOfChan * 2 + 44;
-      const bufferArray = new ArrayBuffer(length);
-      const view = new DataView(bufferArray);
-      const channels = [];
-      let i, sample, offset = 0, pos = 0;
-
-      setUint32(0x46464952);
-      setUint32(length - 8);
-      setUint32(0x45564157);
-      setUint32(0x20746d66);
-      setUint32(16);
-      setUint16(1);
-      setUint16(numOfChan);
-      setUint32(buffer.sampleRate);
-      setUint32(buffer.sampleRate * 2 * numOfChan);
-      setUint16(numOfChan * 2);
-      setUint16(16);
-      setUint32(0x61746164);
-      setUint32(length - pos - 4);
-
-      for (i = 0; i < buffer.numberOfChannels; i++)
-        channels.push(buffer.getChannelData(i));
-
-      while (pos < length) {
-        for (i = 0; i < numOfChan; i++) {
-          sample = Math.max(-1, Math.min(1, channels[i][offset]));
-          sample = sample < 0 ? sample * 0x8000 : sample * 0x7FFF;
-          view.setInt16(pos, sample, true);
-          pos += 2;
-        }
-        offset++;
-      }
-
-      return bufferArray;
-
-      function setUint16(data) {
-        view.setUint16(pos, data, true);
-        pos += 2;
-      }
-
-      function setUint32(data) {
-        view.setUint32(pos, data, true);
-        pos += 4;
-      }
-    }
+    // ...rest of your JS code remains unchanged...
   </script>
 
   <footer>
-    &copy; 2025. Made with ❤️ by Cyber Slot (a.k.a Krishnendu Maji) | <a href="https://github.com/ytcyberslotp90">ytcyberslotp90</a> on <a href="https://github.com">Github</a>
+    &copy; 2025. Made with ❤️ by <a href="https://www.youtube.com/@cyberslot-p90">Cyber Slot</a> (a.k.a Krishnendu Maji) | <a href="https://github.com/ytcyberslotp90">ytcyberslotp90</a> on <a href="https://github.com">Github</a>
   </footer>
 </body>
 </html>
