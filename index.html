@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <link rel="icon" href="https://yt3.googleusercontent.com/VQ8g2TGeoEJDsfAl1ET-XFnSaG0DplnfKsC61db86zGYPdoyXzYzHeJlGKkMxtomoSl0sKAn=s120-c-k-c0x00ffffff-no-rj">
+  <title>CSWaveLab</title>
+  <style>
+    body {
+      font-family: monospace;
+      background: linear-gradient(135deg, #0f0f0f, #1c1c1c);
+      color: #00ffcc;
+      text-align: center;
+      padding: 50px;
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    .container {
+      background: #1a1a1a;
+      padding: 20px;
+      border-radius: 12px;
+      box-shadow: 4px 4px 15px #000;
+      display: inline-block;
+    }
+    select, input[type="number"], button {
+      padding: 10px;
+      margin: 10px;
+      font-size: 1em;
+      border: none;
+      border-radius: 6px;
+      background: #333;
+      color: #00ffcc;
+      box-shadow: 2px 2px 8px #000;
+    }
+    button:hover {
+      background: #00ffcc;
+      color: #000;
+      cursor: pointer;
+    }
+    canvas {
+      display: block;
+      margin: 30px auto 0;
+      background: #000;
+      border-radius: 10px;
+      box-shadow: 0 0 10px #00ffcc;
+    }
+    footer {
+      margin-top: auto;
+      padding: 15px;
+      font-size: 0.9em;
+      color: #888;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>CSWaveLab</h1>
+
+    <label for="wave">Waveform:</label>
+    <select id="wave">
+      <option value="sine">Sine</option>
+      <option value="square">Square</option>
+      <option value="triangle">Triangle</option>
+      <option value="sawtooth">Sawtooth</option>
+    </select><br>
+
+    <label for="freq">Frequency (Hz):</label>
+    <input type="number" id="freq" value="440" min="20" max="20000"><br>
+
+    <button onclick="playOscillator()">▶️ Play</button>
+    <button onclick="stopOscillator()">⏹️ Stop</button>
+  <button onclick="exportWav()">📥 Export .WAV (60 sec)</button>
+  </div>
+
+  <canvas id="scope" width="600" height="150"></canvas>
+
+  <script>
+    window.addEventListener("DOMContentLoaded", () => {
+      const urlParams = new URLSearchParams(window.location.search);
+      const freqParam = urlParams.get("freq");
+      const waveParam = urlParams.get("wave");
+
+      if (freqParam) document.getElementById("freq").value = freqParam;
+      if (waveParam) document.getElementById("wave").value = waveParam;
+
+      if (freqParam || waveParam) playOscillator();
+    });
+    let ctx = null;
+    let osc = null;
+    let analyser = null;
+    let dataArray = null;
+    let animationId = null;
+    let oscillatorStarted = false;
+
+    function playOscillator() {
+      stopOscillator();
+
+      const freq = parseFloat(document.getElementById("freq").value);
+      const wave = document.getElementById("wave").value;
+
+      ctx = new (window.AudioContext || window.webkitAudioContext)();
+      osc = ctx.createOscillator();
+      osc.type = wave;
+      osc.frequency.setValueAtTime(freq, ctx.currentTime);
+
+      analyser = ctx.createAnalyser();
+      analyser.fftSize = 2048;
+      const bufferLength = analyser.fftSize;
+      dataArray = new Uint8Array(bufferLength);
+
+      osc.connect(analyser);
+      analyser.connect(ctx.destination);
+      osc.start();
+      oscillatorStarted = true;
+
+      drawScope();
+    }
+
+    function stopOscillator() {
+      if (osc && oscillatorStarted) {
+        try {
+          osc.stop();
+        } catch (e) {
+          console.error("Oscillator stop error:", e);
+        }
+        osc.disconnect();
+        osc = null;
+        oscillatorStarted = false;
+      }
+      if (ctx) {
+        ctx.close();
+        ctx = null;
+      }
+      if (animationId) cancelAnimationFrame(animationId);
+
+      const canvas = document.getElementById("scope");
+      const canvasCtx = canvas.getContext("2d");
+      canvasCtx.clearRect(0, 0, canvas.width, canvas.height);
+    }
+
+    function drawScope() {
+      const canvas = document.getElementById("scope");
+      const canvasCtx = canvas.getContext("2d");
+
+      function draw() {
+        animationId = requestAnimationFrame(draw);
+
+        analyser.getByteTimeDomainData(dataArray);
+
+        canvasCtx.fillStyle = "black";
+        canvasCtx.fillRect(0, 0, canvas.width, canvas.height);
+
+        canvasCtx.lineWidth = 2;
+        canvasCtx.strokeStyle = "#00ffcc";
+
+        canvasCtx.beginPath();
+
+        const sliceWidth = canvas.width / dataArray.length;
+        let x = 0;
+
+        for (let i = 0; i < dataArray.length; i++) {
+          const v = dataArray[i] / 128.0;
+          const y = v * canvas.height / 2;
+
+          if (i === 0) {
+            canvasCtx.moveTo(x, y);
+          } else {
+            canvasCtx.lineTo(x, y);
+          }
+
+          x += sliceWidth;
+        }
+
+        canvasCtx.lineTo(canvas.width, canvas.height / 2);
+        canvasCtx.stroke();
+      }
+
+      draw();
+    }
+  
+    function exportWav() {
+      const freq = parseFloat(document.getElementById("freq").value);
+      const wave = document.getElementById("wave").value;
+      const duration = 60; // seconds
+      const sampleRate = 44100;
+      const frameCount = sampleRate * duration;
+
+      const offlineCtx = new OfflineAudioContext(1, frameCount, sampleRate);
+      const osc = offlineCtx.createOscillator();
+      osc.type = wave;
+      osc.frequency.setValueAtTime(freq, 0);
+      osc.connect(offlineCtx.destination);
+      osc.start();
+      osc.stop(duration);
+
+      offlineCtx.startRendering().then(renderedBuffer => {
+        const wavData = audioBufferToWav(renderedBuffer);
+        const blob = new Blob([new DataView(wavData)], { type: 'audio/wav' });
+        const url = URL.createObjectURL(blob);
+
+        const a = document.createElement("a");
+        a.style.display = "none";
+        a.href = url;
+        a.download = `cswavelab_${wave}_${freq}Hz.wav`;
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => {
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+        }, 100);
+      });
+    }
+
+    function audioBufferToWav(buffer) {
+      const numOfChan = buffer.numberOfChannels;
+      const length = buffer.length * numOfChan * 2 + 44;
+      const bufferArray = new ArrayBuffer(length);
+      const view = new DataView(bufferArray);
+      const channels = [];
+      let i, sample,
+        offset = 0,
+        pos = 0;
+
+      // write WAV header
+      setUint32(0x46464952); // "RIFF"
+      setUint32(length - 8); // file length - 8
+      setUint32(0x45564157); // "WAVE"
+
+      setUint32(0x20746d66); // "fmt " chunk
+      setUint32(16); // length = 16
+      setUint16(1); // PCM (uncompressed)
+      setUint16(numOfChan);
+      setUint32(buffer.sampleRate);
+      setUint32(buffer.sampleRate * 2 * numOfChan); // avg. bytes/sec
+      setUint16(numOfChan * 2); // block-align
+      setUint16(16); // 16-bit (hardcoded)
+
+      setUint32(0x61746164); // "data" - chunk
+      setUint32(length - pos - 4);
+
+      // write interleaved data
+      for (i = 0; i < buffer.numberOfChannels; i++)
+        channels.push(buffer.getChannelData(i));
+
+      while (pos < length) {
+        for (i = 0; i < numOfChan; i++) {
+          sample = Math.max(-1, Math.min(1, channels[i][offset]));
+          sample = sample < 0 ? sample * 0x8000 : sample * 0x7FFF;
+          view.setInt16(pos, sample, true);
+          pos += 2;
+        }
+        offset++;
+      }
+
+      return bufferArray;
+
+      function setUint16(data) {
+        view.setUint16(pos, data, true);
+        pos += 2;
+      }
+
+      function setUint32(data) {
+        view.setUint32(pos, data, true);
+        pos += 4;
+      }
+    }
+  </script>
+
+  <footer>
+    &copy; 2025. Made with ❤️ by Cyber Slot (a.k.a Krishnendu Maji) | <a href="https://github.com/ytcyberslotp90">ytcyberslotp90</a> on <a href="https://github.com">Github</a>
+  </footer>
+</body>
+</html>
